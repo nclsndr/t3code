@@ -215,7 +215,7 @@ function makeFixtureState(): AppState {
 
 describe("environment grouping", () => {
   describe("deriveLogicalProjectKey", () => {
-    it("uses repositoryIdentity.canonicalKey when present", () => {
+    it("always uses scoped project key regardless of repositoryIdentity", () => {
       const project = makeProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
@@ -229,10 +229,13 @@ describe("environment grouping", () => {
           },
         },
       });
-      expect(deriveLogicalProjectKey(project)).toBe(SHARED_REPO_CANONICAL_KEY);
+      const key = deriveLogicalProjectKey(project);
+      expect(key).toContain(primaryEnvId);
+      expect(key).toContain(sharedProjectPrimaryId);
+      expect(key).not.toBe(SHARED_REPO_CANONICAL_KEY);
     });
 
-    it("falls back to scoped project key when no repositoryIdentity", () => {
+    it("uses scoped project key when no repositoryIdentity", () => {
       const project = makeProject({
         id: localOnlyProjectId,
         environmentId: primaryEnvId,
@@ -243,7 +246,7 @@ describe("environment grouping", () => {
       expect(key).toContain(localOnlyProjectId);
     });
 
-    it("groups projects from different environments that share the same canonical key", () => {
+    it("does NOT group projects from different environments even with shared canonical key", () => {
       const primary = makeProject({
         id: sharedProjectPrimaryId,
         environmentId: primaryEnvId,
@@ -270,7 +273,7 @@ describe("environment grouping", () => {
           },
         },
       });
-      expect(deriveLogicalProjectKey(primary)).toBe(deriveLogicalProjectKey(remote));
+      expect(deriveLogicalProjectKey(primary)).not.toBe(deriveLogicalProjectKey(remote));
     });
 
     it("does NOT group projects without shared canonical key", () => {
@@ -391,7 +394,7 @@ describe("environment grouping", () => {
   });
 
   describe("logical project grouping for sidebar", () => {
-    it("computes correct logical key for grouped projects and aggregates threads", () => {
+    it("never groups projects even when they share the same canonical key", () => {
       const state = makeFixtureState();
       const allProjects = selectProjectsAcrossEnvironments(state);
 
@@ -404,50 +407,34 @@ describe("environment grouping", () => {
         groups.set(key, existing);
       }
 
-      // Shared project should be grouped
-      const sharedGroup = groups.get(SHARED_REPO_CANONICAL_KEY);
-      expect(sharedGroup).toBeDefined();
-      expect(sharedGroup).toHaveLength(2);
-      expect(sharedGroup!.map((p) => p.environmentId).toSorted()).toEqual(
-        [primaryEnvId, remoteEnvId].toSorted(),
-      );
-
-      // Build member refs for the grouped project and fetch threads
-      const memberRefs = sharedGroup!.map((p) => scopeProjectRef(p.environmentId, p.id));
-      const threads = selectSidebarThreadsForProjectRefs(state, memberRefs);
-      expect(threads).toHaveLength(3);
-      const threadIds = threads.map((t) => t.id);
-      expect(threadIds).toContain(threadP1);
-      expect(threadIds).toContain(threadP2);
-      expect(threadIds).toContain(threadR1);
+      // Every project should be its own group — no grouping by canonicalKey
+      expect(groups.size).toBe(4);
+      for (const [, members] of groups) {
+        expect(members).toHaveLength(1);
+      }
     });
 
-    it("local-only and remote-only projects remain ungrouped", () => {
+    it("each project keeps its own threads separate", () => {
       const state = makeFixtureState();
       const allProjects = selectProjectsAcrossEnvironments(state);
 
-      const groups = new Map<string, Project[]>();
-      for (const project of allProjects) {
-        const key = deriveLogicalProjectKey(project);
-        const existing = groups.get(key) ?? [];
-        existing.push(project);
-        groups.set(key, existing);
-      }
+      const primaryShared = allProjects.find(
+        (p) => p.id === sharedProjectPrimaryId,
+      )!;
+      const remoteShared = allProjects.find(
+        (p) => p.id === sharedProjectRemoteId,
+      )!;
 
-      // Should have 3 groups total: shared, local-only, remote-only
-      expect(groups.size).toBe(3);
+      const primaryRef = scopeProjectRef(primaryShared.environmentId, primaryShared.id);
+      const remoteRef = scopeProjectRef(remoteShared.environmentId, remoteShared.id);
 
-      // Local-only group
-      const localKey = deriveLogicalProjectKey(
-        allProjects.find((p) => p.id === localOnlyProjectId)!,
-      );
-      expect(groups.get(localKey)).toHaveLength(1);
+      const primaryThreads = selectSidebarThreadsForProjectRefs(state, [primaryRef]);
+      expect(primaryThreads).toHaveLength(2);
+      expect(primaryThreads.map((t) => t.id)).toEqual([threadP1, threadP2]);
 
-      // Remote-only group
-      const remoteKey = deriveLogicalProjectKey(
-        allProjects.find((p) => p.id === remoteOnlyProjectId)!,
-      );
-      expect(groups.get(remoteKey)).toHaveLength(1);
+      const remoteThreads = selectSidebarThreadsForProjectRefs(state, [remoteRef]);
+      expect(remoteThreads).toHaveLength(1);
+      expect(remoteThreads[0]?.id).toBe(threadR1);
     });
   });
 });

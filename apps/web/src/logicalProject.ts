@@ -5,15 +5,12 @@ import type { Project } from "./types";
 export function deriveLogicalProjectKey(
   project: Pick<Project, "environmentId" | "id" | "repositoryIdentity">,
 ): string {
-  return (
-    project.repositoryIdentity?.canonicalKey ??
-    scopedProjectKey(scopeProjectRef(project.environmentId, project.id))
-  );
+  return scopedProjectKey(scopeProjectRef(project.environmentId, project.id));
 }
 
 export function deriveLogicalProjectKeyFromRef(
   projectRef: ScopedProjectRef,
-  project: Pick<Project, "repositoryIdentity"> | null | undefined,
+  _project: Pick<Project, "repositoryIdentity"> | null | undefined,
 ): string {
-  return project?.repositoryIdentity?.canonicalKey ?? scopedProjectKey(projectRef);
+  return scopedProjectKey(projectRef);
 }
